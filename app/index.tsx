@@ -28,6 +28,7 @@ export default function App() {
   const [pickerTarget, setPickerTarget] = useState<'wake' | 'bed'>('wake');
   const [selectedHour, setSelectedHour] = useState(8);
   const [selectedMinute, setSelectedMinute] = useState(0);
+  const [allActive, setAllActive] = useState(false);
 
   const pickerControl = usePickerControl<ControlPickersMap>();
 
@@ -117,6 +118,7 @@ export default function App() {
     setPickerVisible(false);
   };
 
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Wasser-Reminder</Text>
@@ -173,15 +175,16 @@ export default function App() {
       />
 
       {/* Modal für Wheel Picker */}
-      <Modal visible={pickerVisible} transparent animationType="slide">
+      <Modal visible={pickerVisible} transparent animationType="none">
         <View style={styles.modalContainer}>
           <View style={styles.pickerBox}>
             <Text style={styles.label}>Wähle Zeit</Text>
             <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
               <ControlPicker control={pickerControl} pickerName="hour" data={hoursArray} value={selectedHour} width={100} enableScrollByTapOnItem />
+              <Text style={styles.label}> </Text>
               <ControlPicker control={pickerControl} pickerName="minute" data={minutesArray} value={selectedMinute} width={100} enableScrollByTapOnItem />
             </View>
-            <TouchableOpacity style={styles.button} onPress={confirmPicker}>
+            <TouchableOpacity style={[styles.button, styles.wideButton]} onPress={confirmPicker}>
               <Text style={styles.buttonText}>Bestätigen</Text>
             </TouchableOpacity>
           </View>
@@ -224,10 +227,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+   wideButton: {
+    width: 200,          // Breite anpassen, z.B. 200
+    alignSelf: 'center', // zentriert innerhalb der Box
+  },
   subtitle: { fontSize: 20, fontWeight: 'bold', marginVertical: 20, textAlign: 'center' },
   item: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 15, backgroundColor: '#fff', borderRadius: 25, marginBottom: 5 },
   itemText: { fontSize: 16 },
   buttonTextSmall: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-  pickerBox: { backgroundColor: 'white', padding: 20, borderTopRightRadius: 20, borderTopLeftRadius: 20 },
+  // Modal-Overlay
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',      // zentriert vertikal
+    alignItems: 'center',          // zentriert horizontal
+    backgroundColor: 'rgba(0,0,0,0.3)', // halbtransparenter Hintergrund
+  },
+
+  // Box für Picker
+  pickerBox: {
+    width: 300,                     // Breite des Modals
+    padding: 20,
+    backgroundColor: 'white',       // weiße Box
+    borderRadius: 20,               // abgerundete Ecken
+    alignItems: 'center',           // Inhalt zentrieren
+  },
+
+  
+
 });
