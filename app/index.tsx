@@ -28,6 +28,8 @@ export default function App() {
   const [pickerTarget, setPickerTarget] = useState<'wake' | 'bed'>('wake');
   const [selectedHour, setSelectedHour] = useState(8);
   const [selectedMinute, setSelectedMinute] = useState(0);
+
+  // 👉 State für den Toggle-Button
   const [allActive, setAllActive] = useState(false);
 
   const pickerControl = usePickerControl<ControlPickersMap>();
@@ -72,7 +74,8 @@ export default function App() {
     saveSettings();
     const wake = parseTime(wakeUp);
     const bed = parseTime(bedTime);
-    const totalMl = parseFloat(dailyLiters) * 1000;
+    const normalized = dailyLiters.replace(',', '.');
+    const totalMl = parseFloat(normalized) * 1000;
     const glasses = Math.ceil(totalMl / parseInt(glassSize));
 
     const adjustedBed = new Date(bed.getTime() - 60 * 60 * 1000); // 1 Stunde vorher
@@ -84,17 +87,17 @@ export default function App() {
     }));
 
     setSchedule(times);
+    setAllActive(false); // Plan neu → Button zurücksetzen
   };
 
-  const toggleDone = (index: number) => {
-    const newSchedule = [...schedule];
-    newSchedule[index].done = !newSchedule[index].done;
-    setSchedule(newSchedule);
-  };
 
-  const activateAllAlarms = () => {
-    const newSchedule = schedule.map((item) => ({ ...item, done: true }));
+
+  // 👉 Alle aktivieren/deaktivieren
+  const toggleAllAlarms = () => {
+    const newValue = !allActive;
+    const newSchedule = schedule.map((item) => ({ ...item, done: newValue }));
     setSchedule(newSchedule);
+    setAllActive(newValue);
   };
 
   const openPicker = (target: 'wake' | 'bed') => {
@@ -118,12 +121,11 @@ export default function App() {
     setPickerVisible(false);
   };
 
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Wasser-Reminder</Text>
 
-      {/* Erste Zeile: Aufsteh- & Schlafenszeit */}
+      {/* Eingabe-Felder */}
       <View style={styles.inputRow}>
         <View style={styles.inputContainerLeft}>
           <Text style={styles.label}>Aufstehzeit</Text>
@@ -139,7 +141,6 @@ export default function App() {
         </View>
       </View>
 
-      {/* Zweite Zeile: Tagesziel & Glasgröße */}
       <View style={styles.inputRow}>
         <View style={styles.inputContainerLeft}>
           <Text style={styles.label}>Tagesziel (Liter)</Text>
@@ -155,11 +156,16 @@ export default function App() {
         <Text style={styles.buttonText}>Trinkplan erstellen</Text>
       </TouchableOpacity>
 
-      {/* Trinkzeiten-Header mit Knopf */}
+      {/* Trinkzeiten + Toggle-Button */}
       <View style={styles.headerRow}>
         <Text style={styles.subtitle}>Trinkzeiten:</Text>
-        <TouchableOpacity style={styles.activateButton} onPress={activateAllAlarms}>
-          <Text style={styles.buttonTextSmall}>Alle aktivieren</Text>
+        <TouchableOpacity
+          style={[styles.activateButton, allActive && styles.buttonRed]}
+          onPress={toggleAllAlarms}
+        >
+          <Text style={styles.buttonTextSmall}>
+            {allActive ? 'Alle deaktivieren' : 'Alle aktivieren'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -181,7 +187,6 @@ export default function App() {
             <Text style={styles.label}>Wähle Zeit</Text>
             <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
               <ControlPicker control={pickerControl} pickerName="hour" data={hoursArray} value={selectedHour} width={100} enableScrollByTapOnItem />
-              <Text style={styles.label}> </Text>
               <ControlPicker control={pickerControl} pickerName="minute" data={minutesArray} value={selectedMinute} width={100} enableScrollByTapOnItem />
             </View>
             <TouchableOpacity style={[styles.button, styles.wideButton]} onPress={confirmPicker}>
@@ -198,8 +203,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, paddingTop: 50, backgroundColor: '#f2f2f2' },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
   inputRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  inputContainerRight: { flex: 1, justifyContent: 'space-between', marginHorizontal: 0, marginLeft: 10 },
-  inputContainerLeft: { flex: 1, justifyContent: 'space-between', marginHorizontal: 0, marginRight: 10 },
+  inputContainerRight: { flex: 1, marginLeft: 10 },
+  inputContainerLeft: { flex: 1, marginRight: 10 },
   label: { fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
   input: {
     borderWidth: 1,
@@ -226,32 +231,35 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
-  buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
-   wideButton: {
-    width: 200,          // Breite anpassen, z.B. 200
-    alignSelf: 'center', // zentriert innerhalb der Box
+  buttonRed: {
+    backgroundColor: 'red',   // 👉 Farbe wenn aktiv
   },
+  buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  wideButton: { width: 200, alignSelf: 'center' },
   subtitle: { fontSize: 20, fontWeight: 'bold', marginVertical: 20, textAlign: 'center' },
-  item: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 15, backgroundColor: '#fff', borderRadius: 25, marginBottom: 5 },
+  item: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    backgroundColor: '#fff',
+    borderRadius: 25,
+    marginBottom: 5,
+  },
   itemText: { fontSize: 16 },
   buttonTextSmall: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  // Modal-Overlay
   modalContainer: {
     flex: 1,
-    justifyContent: 'center',      // zentriert vertikal
-    alignItems: 'center',          // zentriert horizontal
-    backgroundColor: 'rgba(0,0,0,0.3)', // halbtransparenter Hintergrund
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
-
-  // Box für Picker
   pickerBox: {
-    width: 300,                     // Breite des Modals
+    width: 300,
     padding: 20,
-    backgroundColor: 'white',       // weiße Box
-    borderRadius: 20,               // abgerundete Ecken
-    alignItems: 'center',           // Inhalt zentrieren
+    backgroundColor: 'white',
+    borderRadius: 20,
+    alignItems: 'center',
   },
-
-  
-
 });
