@@ -6,7 +6,16 @@ import WheelPicker, {
 } from '@quidone/react-native-wheel-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useState } from 'react';
-import { FlatList, Modal, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  FlatList,
+  Modal,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const ControlPicker = withPickerControl(WheelPicker);
 type ControlPickersMap = {
@@ -17,19 +26,19 @@ type ControlPickersMap = {
 const hoursArray = Array.from({ length: 24 }, (_, i) => ({ value: i }));
 const minutesArray = Array.from({ length: 60 }, (_, i) => ({ value: i }));
 
+type DrinkTime = { time: string; done: boolean };
+
 export default function App() {
   const [wakeUp, setWakeUp] = useState('');
   const [bedTime, setBedTime] = useState('');
   const [dailyLiters, setDailyLiters] = useState('');
   const [glassSize, setGlassSize] = useState('');
-  const [schedule, setSchedule] = useState<{ time: string; done: boolean }[]>([]);
+  const [schedule, setSchedule] = useState<DrinkTime[]>([]);
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<'wake' | 'bed'>('wake');
   const [selectedHour, setSelectedHour] = useState(8);
   const [selectedMinute, setSelectedMinute] = useState(0);
-
-  // 👉 State für den Toggle-Button
   const [allActive, setAllActive] = useState(false);
 
   const pickerControl = usePickerControl<ControlPickersMap>();
@@ -39,7 +48,10 @@ export default function App() {
     setSelectedMinute(event.pickers.minute.item.value);
   });
 
-  useEffect(() => { loadSettings(); }, []);
+  // ----------  Laden  ----------
+  useEffect(() => {
+    loadSettings();
+  }, []);
 
   const loadSettings = async () => {
     try {
@@ -47,20 +59,39 @@ export default function App() {
       const bed = await AsyncStorage.getItem('bedTime');
       const liters = await AsyncStorage.getItem('dailyLiters');
       const glass = await AsyncStorage.getItem('glassSize');
+
       if (wake) setWakeUp(wake);
       if (bed) setBedTime(bed);
       if (liters) setDailyLiters(liters);
       if (glass) setGlassSize(glass);
-    } catch (e) { console.log(e); }
+
+      // 🆕 Trinkzeiten + Status laden
+      const storedSchedule = await AsyncStorage.getItem('drinkSchedule');
+      if (storedSchedule) {
+        const parsed: DrinkTime[] = JSON.parse(storedSchedule);
+        setSchedule(parsed);
+        // Prüfen ob aktuell alle aktiv
+        setAllActive(parsed.every((t) => t.done));
+      }
+    } catch (e) {
+      console.log(e);
+    }
   };
 
-  const saveSettings = async () => {
+  // ----------  Speichern  ----------
+  const saveSettings = async (newSchedule?: DrinkTime[]) => {
     try {
       await AsyncStorage.setItem('wakeUp', wakeUp);
       await AsyncStorage.setItem('bedTime', bedTime);
       await AsyncStorage.setItem('dailyLiters', dailyLiters);
       await AsyncStorage.setItem('glassSize', glassSize);
-    } catch (e) { console.log(e); }
+      if (newSchedule) {
+        // 🆕 Plan mitspeichern
+        await AsyncStorage.setItem('drinkSchedule', JSON.stringify(newSchedule));
+      }
+    } catch (e) {
+      console.log(e);
+    }
   };
 
   const parseTime = (time: string) => {
@@ -71,33 +102,49 @@ export default function App() {
   };
 
   const createSchedule = () => {
+    // alle Settings speichern
     saveSettings();
     const wake = parseTime(wakeUp);
     const bed = parseTime(bedTime);
+
     const normalized = dailyLiters.replace(',', '.');
     const totalMl = parseFloat(normalized) * 1000;
     const glasses = Math.ceil(totalMl / parseInt(glassSize));
 
-    const adjustedBed = new Date(bed.getTime() - 60 * 60 * 1000); // 1 Stunde vorher
+    // letzte Zeit 1 Stunde vor Schlafen
+    const adjustedBed = new Date(bed.getTime() - 60 * 60 * 1000);
     const interval = (adjustedBed.getTime() - wake.getTime()) / glasses;
 
-    const times = Array.from({ length: glasses }, (_, i) => ({
-      time: new Date(wake.getTime() + interval * (i + 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    const times: DrinkTime[] = Array.from({ length: glasses }, (_, i) => ({
+      time: new Date(wake.getTime() + interval * (i + 1)).toLocaleTimeString(
+        [],
+        { hour: '2-digit', minute: '2-digit' }
+      ),
       done: false,
     }));
 
     setSchedule(times);
-    setAllActive(false); // Plan neu → Button zurücksetzen
+    setAllActive(false);
+    // 🆕 Plan direkt speichern
+    saveSettings(times);
   };
 
+  // ----------  Status toggeln  ----------
+  const toggleDone = async (index: number) => {
+    const updated = schedule.map((item, i) =>
+      i === index ? { ...item, done: !item.done } : item
+    );
+    setSchedule(updated);
+    setAllActive(updated.every((t) => t.done));
+    await AsyncStorage.setItem('drinkSchedule', JSON.stringify(updated));
+  };
 
-
-  // 👉 Alle aktivieren/deaktivieren
-  const toggleAllAlarms = () => {
+  const toggleAllAlarms = async () => {
     const newValue = !allActive;
     const newSchedule = schedule.map((item) => ({ ...item, done: newValue }));
     setSchedule(newSchedule);
     setAllActive(newValue);
+    await AsyncStorage.setItem('drinkSchedule', JSON.stringify(newSchedule));
   };
 
   const openPicker = (target: 'wake' | 'bed') => {
@@ -115,7 +162,9 @@ export default function App() {
   };
 
   const confirmPicker = () => {
-    const timeString = `${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`;
+    const timeString = `${selectedHour
+      .toString()
+      .padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`;
     if (pickerTarget === 'wake') setWakeUp(timeString);
     else setBedTime(timeString);
     setPickerVisible(false);
@@ -130,13 +179,25 @@ export default function App() {
         <View style={styles.inputContainerLeft}>
           <Text style={styles.label}>Aufstehzeit</Text>
           <TouchableOpacity onPress={() => openPicker('wake')}>
-            <TextInput style={styles.input} value={wakeUp} editable={false} pointerEvents="none" placeholder="08:00" />
+            <TextInput
+              style={styles.input}
+              value={wakeUp}
+              editable={false}
+              pointerEvents="none"
+              placeholder="08:00"
+            />
           </TouchableOpacity>
         </View>
         <View style={styles.inputContainerRight}>
           <Text style={styles.label}>Schlafenszeit</Text>
           <TouchableOpacity onPress={() => openPicker('bed')}>
-            <TextInput style={styles.input} value={bedTime} editable={false} pointerEvents="none" placeholder="22:00" />
+            <TextInput
+              style={styles.input}
+              value={bedTime}
+              editable={false}
+              pointerEvents="none"
+              placeholder="22:00"
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -144,11 +205,23 @@ export default function App() {
       <View style={styles.inputRow}>
         <View style={styles.inputContainerLeft}>
           <Text style={styles.label}>Tagesziel (Liter)</Text>
-          <TextInput style={styles.input} value={dailyLiters} onChangeText={setDailyLiters} keyboardType="numeric" placeholder="2" />
+          <TextInput
+            style={styles.input}
+            value={dailyLiters}
+            onChangeText={setDailyLiters}
+            keyboardType="numeric"
+            placeholder="2"
+          />
         </View>
         <View style={styles.inputContainerRight}>
           <Text style={styles.label}>Glasgröße (ml)</Text>
-          <TextInput style={styles.input} value={glassSize} onChangeText={setGlassSize} keyboardType="numeric" placeholder="200" />
+          <TextInput
+            style={styles.input}
+            value={glassSize}
+            onChangeText={setGlassSize}
+            keyboardType="numeric"
+            placeholder="200"
+          />
         </View>
       </View>
 
@@ -186,8 +259,22 @@ export default function App() {
           <View style={styles.pickerBox}>
             <Text style={styles.label}>Wähle Zeit</Text>
             <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-              <ControlPicker control={pickerControl} pickerName="hour" data={hoursArray} value={selectedHour} width={100} enableScrollByTapOnItem />
-              <ControlPicker control={pickerControl} pickerName="minute" data={minutesArray} value={selectedMinute} width={100} enableScrollByTapOnItem />
+              <ControlPicker
+                control={pickerControl}
+                pickerName="hour"
+                data={hoursArray}
+                value={selectedHour}
+                width={100}
+                enableScrollByTapOnItem
+              />
+              <ControlPicker
+                control={pickerControl}
+                pickerName="minute"
+                data={minutesArray}
+                value={selectedMinute}
+                width={100}
+                enableScrollByTapOnItem
+              />
             </View>
             <TouchableOpacity style={[styles.button, styles.wideButton]} onPress={confirmPicker}>
               <Text style={styles.buttonText}>Bestätigen</Text>
@@ -231,9 +318,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
-  buttonRed: {
-    backgroundColor: 'red',   // 👉 Farbe wenn aktiv
-  },
+  buttonRed: { backgroundColor: 'red' },
   buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
   wideButton: { width: 200, alignSelf: 'center' },
   subtitle: { fontSize: 20, fontWeight: 'bold', marginVertical: 20, textAlign: 'center' },
