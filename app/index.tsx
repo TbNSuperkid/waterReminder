@@ -5,6 +5,7 @@ import WheelPicker, {
   withPickerControl,
 } from '@quidone/react-native-wheel-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import React, { useEffect, useState } from 'react';
 import {
   FlatList,
@@ -16,6 +17,61 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+//import * as Permissions from 'expo-permissions';
+
+useEffect(() => {
+  registerForPushNotificationsAsync();
+}, []);
+
+const registerForPushNotificationsAsync = async () => {
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+
+  if (finalStatus !== 'granted') {
+    alert('Push-Benachrichtigungen wurden nicht erlaubt!');
+    return;
+  }
+};
+
+const scheduleNotification = async (timeString: string) => {
+  const [hour, minute] = timeString.split(':').map(Number);
+  const now = new Date();
+  let triggerDate = new Date();
+  triggerDate.setHours(hour, minute, 0, 0);
+
+  // Wenn die Zeit schon vorbei ist, auf morgen verschieben
+  if (triggerDate <= now) triggerDate.setDate(triggerDate.getDate() + 1);
+
+  const seconds = Math.ceil((triggerDate.getTime() - now.getTime()) / 1000);
+
+  const trigger: Notifications.TimeIntervalTriggerInput = {
+    type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, // ✅ Enum verwenden
+    seconds: seconds > 0 ? seconds : 1, // mindestens 1 Sekunde
+    repeats: false,
+  };
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '💧 Trink-Erinnerung',
+      body: `Zeit für ein Glas Wasser! (${timeString})`,
+      sound: true,
+    },
+    trigger,
+  });
+};
+
+
+
+
+
+const cancelNotification = async () => {
+  await Notifications.cancelAllScheduledNotificationsAsync();
+};
 
 const ControlPicker = withPickerControl(WheelPicker);
 type ControlPickersMap = {
@@ -130,13 +186,24 @@ export default function App() {
   };
 
   // ----------  Status toggeln  ----------
-  const toggleDone = async (index: number) => {
-    const updated = schedule.map((item, i) =>
+  const toggleAlarm = async (index: number) => {
+      const updated = schedule.map((item, i) =>
       i === index ? { ...item, done: !item.done } : item
     );
     setSchedule(updated);
     setAllActive(updated.every((t) => t.done));
     await AsyncStorage.setItem('drinkSchedule', JSON.stringify(updated));
+
+    // 🔔 Notification planen oder löschen
+    if (updated[index].done) {
+      scheduleNotification(updated[index].time);
+    } else {
+      // Optional: alle Notifications abbrechen und die aktiven neu planen
+      await cancelNotification();
+      updated.forEach((item) => {
+        if (item.done) scheduleNotification(item.time);
+      });
+    };
   };
 
   const toggleAllAlarms = async () => {
@@ -145,6 +212,13 @@ export default function App() {
     setSchedule(newSchedule);
     setAllActive(newValue);
     await AsyncStorage.setItem('drinkSchedule', JSON.stringify(newSchedule));
+
+    // 🔔 Notifications planen / abbrechen
+    if (newValue) {
+      newSchedule.forEach((item) => scheduleNotification(item.time));
+    } else {
+      await cancelNotification();
+    }
   };
 
   const openPicker = (target: 'wake' | 'bed') => {
@@ -248,7 +322,7 @@ export default function App() {
         renderItem={({ item, index }) => (
           <View style={styles.item}>
             <Text style={styles.itemText}>{item.time}</Text>
-            <Switch value={item.done} onValueChange={() => toggleDone(index)} />
+            <Switch value={item.done} onValueChange={() => toggleAlarm(index)} />
           </View>
         )}
       />
