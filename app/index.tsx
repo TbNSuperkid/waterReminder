@@ -1,13 +1,40 @@
+import WheelPicker, {
+  type PickerItem,
+  useOnPickerValueChangedEffect,
+  usePickerControl,
+  withPickerControl,
+} from '@quidone/react-native-wheel-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useState } from 'react';
-import { FlatList, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, Modal, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
+const ControlPicker = withPickerControl(WheelPicker);
+type ControlPickersMap = {
+  hour: { item: PickerItem<number> };
+  minute: { item: PickerItem<number> };
+};
+
+const hoursArray = Array.from({ length: 24 }, (_, i) => ({ value: i }));
+const minutesArray = Array.from({ length: 60 }, (_, i) => ({ value: i }));
 
 export default function App() {
-  const [wakeUp, setWakeUp] = useState('08:00');
-  const [bedTime, setBedTime] = useState('22:00');
-  const [dailyLiters, setDailyLiters] = useState('2');
-  const [glassSize, setGlassSize] = useState('250');
-  const [schedule, setSchedule] = useState<{time: string, done: boolean}[]>([]);
+  const [wakeUp, setWakeUp] = useState('');
+  const [bedTime, setBedTime] = useState('');
+  const [dailyLiters, setDailyLiters] = useState('');
+  const [glassSize, setGlassSize] = useState('');
+  const [schedule, setSchedule] = useState<{ time: string; done: boolean }[]>([]);
+
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<'wake' | 'bed'>('wake');
+  const [selectedHour, setSelectedHour] = useState(8);
+  const [selectedMinute, setSelectedMinute] = useState(0);
+
+  const pickerControl = usePickerControl<ControlPickersMap>();
+
+  useOnPickerValueChangedEffect(pickerControl, (event) => {
+    setSelectedHour(event.pickers.hour.item.value);
+    setSelectedMinute(event.pickers.minute.item.value);
+  });
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -46,11 +73,13 @@ export default function App() {
     const bed = parseTime(bedTime);
     const totalMl = parseFloat(dailyLiters) * 1000;
     const glasses = Math.ceil(totalMl / parseInt(glassSize));
-    const interval = (bed.getTime() - wake.getTime()) / glasses;
+
+    const adjustedBed = new Date(bed.getTime() - 60 * 60 * 1000); // 1 Stunde vorher
+    const interval = (adjustedBed.getTime() - wake.getTime()) / glasses;
 
     const times = Array.from({ length: glasses }, (_, i) => ({
       time: new Date(wake.getTime() + interval * (i + 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      done: false
+      done: false,
     }));
 
     setSchedule(times);
@@ -62,31 +91,61 @@ export default function App() {
     setSchedule(newSchedule);
   };
 
+  const activateAllAlarms = () => {
+    const newSchedule = schedule.map((item) => ({ ...item, done: true }));
+    setSchedule(newSchedule);
+  };
+
+  const openPicker = (target: 'wake' | 'bed') => {
+    setPickerTarget(target);
+    const time = target === 'wake' ? wakeUp : bedTime;
+    if (time) {
+      const [h, m] = time.split(':').map(Number);
+      setSelectedHour(h);
+      setSelectedMinute(m);
+    } else {
+      setSelectedHour(8);
+      setSelectedMinute(0);
+    }
+    setPickerVisible(true);
+  };
+
+  const confirmPicker = () => {
+    const timeString = `${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`;
+    if (pickerTarget === 'wake') setWakeUp(timeString);
+    else setBedTime(timeString);
+    setPickerVisible(false);
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Wasser-Reminder</Text>
 
       {/* Erste Zeile: Aufsteh- & Schlafenszeit */}
       <View style={styles.inputRow}>
-        <View style={styles.inputContainer}>
+        <View style={styles.inputContainerLeft}>
           <Text style={styles.label}>Aufstehzeit</Text>
-          <TextInput style={styles.input} value={wakeUp} onChangeText={setWakeUp} keyboardType="numeric" />
+          <TouchableOpacity onPress={() => openPicker('wake')}>
+            <TextInput style={styles.input} value={wakeUp} editable={false} pointerEvents="none" placeholder="08:00" />
+          </TouchableOpacity>
         </View>
-        <View style={styles.inputContainer}>
+        <View style={styles.inputContainerRight}>
           <Text style={styles.label}>Schlafenszeit</Text>
-          <TextInput style={styles.input} value={bedTime} onChangeText={setBedTime} keyboardType="numeric" />
+          <TouchableOpacity onPress={() => openPicker('bed')}>
+            <TextInput style={styles.input} value={bedTime} editable={false} pointerEvents="none" placeholder="22:00" />
+          </TouchableOpacity>
         </View>
       </View>
 
       {/* Zweite Zeile: Tagesziel & Glasgröße */}
       <View style={styles.inputRow}>
-        <View style={styles.inputContainer}>
+        <View style={styles.inputContainerLeft}>
           <Text style={styles.label}>Tagesziel (Liter)</Text>
-          <TextInput style={styles.input} value={dailyLiters} onChangeText={setDailyLiters} keyboardType="numeric" />
+          <TextInput style={styles.input} value={dailyLiters} onChangeText={setDailyLiters} keyboardType="numeric" placeholder="2" />
         </View>
-        <View style={styles.inputContainer}>
+        <View style={styles.inputContainerRight}>
           <Text style={styles.label}>Glasgröße (ml)</Text>
-          <TextInput style={styles.input} value={glassSize} onChangeText={setGlassSize} keyboardType="numeric" />
+          <TextInput style={styles.input} value={glassSize} onChangeText={setGlassSize} keyboardType="numeric" placeholder="200" />
         </View>
       </View>
 
@@ -94,7 +153,14 @@ export default function App() {
         <Text style={styles.buttonText}>Trinkplan erstellen</Text>
       </TouchableOpacity>
 
-      <Text style={styles.subtitle}>Trinkzeiten:</Text>
+      {/* Trinkzeiten-Header mit Knopf */}
+      <View style={styles.headerRow}>
+        <Text style={styles.subtitle}>Trinkzeiten:</Text>
+        <TouchableOpacity style={styles.activateButton} onPress={activateAllAlarms}>
+          <Text style={styles.buttonTextSmall}>Alle aktivieren</Text>
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         data={schedule}
         keyExtractor={(_, index) => index.toString()}
@@ -105,6 +171,22 @@ export default function App() {
           </View>
         )}
       />
+
+      {/* Modal für Wheel Picker */}
+      <Modal visible={pickerVisible} transparent animationType="slide">
+        <View style={styles.modalContainer}>
+          <View style={styles.pickerBox}>
+            <Text style={styles.label}>Wähle Zeit</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+              <ControlPicker control={pickerControl} pickerName="hour" data={hoursArray} value={selectedHour} width={100} enableScrollByTapOnItem />
+              <ControlPicker control={pickerControl} pickerName="minute" data={minutesArray} value={selectedMinute} width={100} enableScrollByTapOnItem />
+            </View>
+            <TouchableOpacity style={styles.button} onPress={confirmPicker}>
+              <Text style={styles.buttonText}>Bestätigen</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -113,12 +195,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, paddingTop: 50, backgroundColor: '#f2f2f2' },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
   inputRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  inputContainer: { flex: 1, marginHorizontal: 5 },
+  inputContainerRight: { flex: 1, justifyContent: 'space-between', marginHorizontal: 0, marginLeft: 10 },
+  inputContainerLeft: { flex: 1, justifyContent: 'space-between', marginHorizontal: 0, marginRight: 10 },
   label: { fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 50,        // komplett rund
+    borderRadius: 50,
     paddingVertical: 12,
     paddingHorizontal: 20,
     textAlign: 'center',
@@ -133,8 +216,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 10 },
+  activateButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 25,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
   buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
   subtitle: { fontSize: 20, fontWeight: 'bold', marginVertical: 20, textAlign: 'center' },
   item: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 15, backgroundColor: '#fff', borderRadius: 25, marginBottom: 5 },
   itemText: { fontSize: 16 },
+  buttonTextSmall: { color: 'white', fontWeight: 'bold', fontSize: 14 },
+  modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  pickerBox: { backgroundColor: 'white', padding: 20, borderTopRightRadius: 20, borderTopLeftRadius: 20 },
 });
